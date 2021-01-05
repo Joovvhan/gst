@@ -1,0 +1,6 @@
+.vscode/
+__pycache__/
+nohup.out
+*.csv
+*.wav
+runs/
