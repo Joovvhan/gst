@@ -102,7 +102,25 @@ def save_wav_plot(mel, y):
 def mel_normalize(mel, mel_min=-12):
     return mel / (-mel_min / 2) + 1
 
-def batch_collator(metadata):
+def mel_random_masking(tensor, masking_ratio=0.1, mel_min=-12):
+
+    mask = torch.rand(tensor.shape) > masking_ratio
+
+    masked_tensor = torch.mul(tensor, mask)
+
+    masked_tensor += ~mask * mel_min
+
+    return masked_tensor
+
+def mel_random_segment(mel, segment_len=250):
+    M, T = mel.shape # (M, T)
+    if T - segment_len > 0:
+        random_offset = torch.randint(0, T - segment_len, (1,))
+    else:
+        random_offset = 0
+    return mel[:, random_offset:random_offset+segment_len]
+
+def batch_collator(metadata, masking_ratio=0.1, mel_min=-12):
 
     mel_list = list()
     emo_list = list()
@@ -110,7 +128,9 @@ def batch_collator(metadata):
         emo_list.append(EMO_DICT[emo])
         y = load_raw(f_file)
         mel = MEL2SAMP.get_mel(torch.tensor(y)) # (M, T)
+        mel = mel_random_masking(mel, masking_ratio, mel_min)
         mel = mel_normalize(mel)
+        mel = mel_random_segment(mel)
         mel_list.append(mel.T)
     
     batched_emo = torch.tensor(emo_list)
@@ -254,6 +274,8 @@ if __name__ == "__main__":
                                   np.mean(acc_list), 
                                   global_step=step)
 
+        print(f'[Train] Loss: {np.mean(loss_list):2.3f} / Acc: {np.mean(acc_list):2.3f}')
+
         model.eval()
         loss_list = list()
         acc_list = list()
@@ -269,6 +291,9 @@ if __name__ == "__main__":
         summary_writer.add_scalar('acc/eval', 
                             np.mean(acc_list), 
                             global_step=step)
+
+        print(f'[Eval] Loss: {np.mean(loss_list):2.3f} / Acc: {np.mean(acc_list):2.3f}')
+
 
     # pred_tensor = model(input_tensor)
 
