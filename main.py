@@ -25,6 +25,9 @@ from mel2samp import MEL2SAMP
 
 from tensorboardX import SummaryWriter
 
+# torch.cuda.amp
+from torch.cuda.amp import autocast
+
 EMO_LIST = ['neu', 'hap', 'ang', 'sad', 'fea', 'sur', 'dis']
 EMO_DICT = {emo: i for i, emo in enumerate(EMO_LIST)}
 
@@ -85,12 +88,22 @@ def display_meta_statistics(metadata):
 def load_raw(raw_file):
     with open(raw_file, 'rb') as f:
         y = np.frombuffer(f.read(), dtype=np.int16)
-    return y
+
+    '''
+    UserWarning: The given NumPy array is not writeable, 
+    and PyTorch does not support non-writeable tensors. 
+    This means you can write to the underlying (supposedly non-writeable) 
+    NumPy array using the tensor. You may want to copy the array 
+    to protect its data or make it writeable before converting it to a tensor. 
+    This type of warning will be suppressed for the rest of this program.
+    '''
+
+    return np.array(y, copy=True)
 
 def save_wav_plot(mel, y):
     mel = mel_normalize(mel)
     fig, axes = plt.subplots(2, 1)
-    im = axes[0].imshow(mel, origin='reversed')
+    im = axes[0].imshow(mel, origin='lower')
     plt.colorbar(im, ax=axes[0])
     axes[1].plot(y)
     plt.tight_layout()
@@ -243,11 +256,11 @@ if __name__ == "__main__":
     summary_writer = SummaryWriter()
 
     train_data_loader = DataLoader(train_meta, batch_size=hyper_params_dict['batch_size'], 
-                                   shuffle=True, num_workers=2, 
+                                   shuffle=True, num_workers=4, 
                                    collate_fn=batch_collator, drop_last=False)
 
     test_data_loader = DataLoader(test_meta, batch_size=hyper_params_dict['batch_size'], 
-                                  shuffle=False, num_workers=2, 
+                                  shuffle=False, num_workers=4, 
                                   collate_fn=batch_collator, drop_last=True)
 
     # input_tensor = torch.rand([4, 72, 80]).unsqueeze(1)
@@ -260,13 +273,20 @@ if __name__ == "__main__":
         acc_list = list()
         for batched_mel, batched_emo in tqdm(train_data_loader):
             optimizer.zero_grad()
-            pred_tensor = model(batched_mel.to(device))
-            loss = loss_func(pred_tensor, batched_emo.to(device))
+
+            with autocast():
+                pred_tensor = model(batched_mel.to(device))
+                loss = loss_func(pred_tensor, batched_emo.to(device))
+
+            # pred_tensor = model(batched_mel.to(device))
+            # loss = loss_func(pred_tensor, batched_emo.to(device))
+
             loss.backward()
             optimizer.step()
             loss_list.append(loss.item())
             acc_list.append(torch.mean((torch.argmax(pred_tensor.cpu(), dim=-1) == batched_emo).float()))
             step += 1
+
         summary_writer.add_scalar('loss/train', 
                                   np.mean(loss_list), 
                                   global_step=step)
@@ -280,8 +300,14 @@ if __name__ == "__main__":
         loss_list = list()
         acc_list = list()
         for batched_mel, batched_emo in tqdm(test_data_loader):
-            pred_tensor = model(batched_mel.to(device))
-            loss = loss_func(pred_tensor, batched_emo.to(device))
+            
+            with autocast():
+                pred_tensor = model(batched_mel.to(device))
+                loss = loss_func(pred_tensor, batched_emo.to(device))
+
+            # pred_tensor = model(batched_mel.to(device))
+            # loss = loss_func(pred_tensor, batched_emo.to(device))
+
             loss_list.append(loss.item())
             acc_list.append(torch.mean((torch.argmax(pred_tensor.cpu(), dim=-1) == batched_emo).float()))
         # print(np.mean(loss_list))
