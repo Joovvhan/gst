@@ -3,4 +3,6 @@ __pycache__/
 nohup.out
 *.csv
 *.wav
+*.png
+wavs/
 runs/
